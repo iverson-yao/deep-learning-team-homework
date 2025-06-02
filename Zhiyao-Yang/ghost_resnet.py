@@ -46,3 +46,38 @@ class GhostModule(nn.Conv2d):
         x2 = x2[:, :self.out_channels - self.init_channels, :, :]
         x = torch.cat([x1, x2], 1)
         return x
+
+def conv3x3(in_planes, out_planes, stride=1, s=4, d=3):
+    "3x3 convolution with padding"
+    return GhostModule(in_planes, out_planes, kernel_size=3, dw_size=d, ratio=s,
+                     stride=stride, padding=1, bias=False)
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, s=4, d=3):
+        super(Bottleneck, self).__init__()
+        self.conv1 = GhostModule(inplanes, planes, kernel_size=1, dw_size=d, ratio=s, bias=False)
+        self.conv2 = GhostModule(planes, planes, kernel_size=3, dw_size=d, ratio=s,
+                     stride=stride, padding=1, bias=False)
+        self.conv3 = GhostModule(planes, planes * 4, kernel_size=1, dw_size=d, ratio=s, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+
+        return out
