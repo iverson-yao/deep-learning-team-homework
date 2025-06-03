@@ -9,11 +9,16 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.utils.data import random_split
 from torchvision import transforms, datasets
 
+import matplotlib.pyplot as plt
+import csv
+import glob
+
 # 从 ghost_resnet.py 导入模型
-# from ghost_resnet import resnet50
-from resnet import resnet50
+from ghost_resnet import resnet50
+#from resnet import resnet50
 
 # 设置日志格式
 logging.basicConfig(level=logging.INFO)
@@ -56,12 +61,6 @@ def train_one_epoch(model, loader, optimizer, loss_fn, device, epoch, args):
         input, target = input.to(device), target.to(device)
 
         output = model(input)
-
-
-        # print("Output min/max:", output.min().item(), output.max().item())  # 👈 加在这里
-
-
-
         loss = loss_fn(output, target)
 
         acc1, acc5 = accuracy(output, target, (1, 5))
@@ -159,24 +158,29 @@ def main():
         transforms.Normalize(mean, std),
     ])
 
-    # 加载数据集
-    train_dataset = datasets.CIFAR100(root=args.data, train=True, download=True, transform=transform_train)
-    test_dataset = datasets.CIFAR100(root=args.data, train=False, download=True, transform=transform_test)
+    # 加载原始训练集
+    train_dataset_full = datasets.CIFAR100(root=args.data, train=True, download=True, transform=transform_train)
+
+    # 划分训练集和验证集（例如 90% 训练，10% 验证）
+    train_size = int(0.9 * len(train_dataset_full))
+    val_size = len(train_dataset_full) - train_size
+    train_dataset, val_dataset = random_split(train_dataset_full, [train_size, val_size])
+
+    # 注意：验证集使用与训练集不同的 transform（通常不进行数据增强）
+    # 所以我们可以重新定义 val_dataset 的 transform 为 transform_test
+    val_dataset.dataset.transform = transform_test  # 把 transform 改为测试时的 transform（无数据增强）
+
+    # 创建 DataLoader
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=100, shuffle=False, num_workers=4, pin_memory=True)
+
+    # 加载测试集
+    test_dataset = datasets.CIFAR100(root=args.data, train=False, download=True, transform=transform_test)
     test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False, num_workers=4, pin_memory=True)
 
-
-    # for input, target in train_loader:
-    #     print(input.shape, input.min(), input.max())   # 应该是 torch.Size([128, 3, 32, 32])，值在 [0, 1] 或 [-x, x]
-    #     print(target.min(), target.max())              # 应该是 0~99
-    #     break
-
-
-
-
     # 创建模型
-    # model = resnet50(num_classes=100, s=args.width, d=3)
-    model = resnet50(num_classes=100)
+    model = resnet50(num_classes=100, s=args.width, d=3)
+    #model = resnet50(num_classes=100)
 
     if args.resume:
         print(f"=> loading checkpoint '{args.resume}'")
@@ -187,6 +191,7 @@ def main():
 
     if args.num_gpu > 1:
         model = torch.nn.DataParallel(model, device_ids=list(range(args.num_gpu)))
+    print("设备为:",device)
     model = model.to(device)
 
     # 损失函数和优化器
@@ -196,29 +201,95 @@ def main():
 
     best_acc = 0
 
-    # 开始训练
+    # 创建 results/run_x 文件夹
+    result_base_dir = 'results'
+    os.makedirs(result_base_dir, exist_ok=True)
+
+    # 获取已有 run_x 文件夹编号
+    existing_runs = glob.glob(os.path.join(result_base_dir, 'run_*'))
+    existing_ids = [int(x.split('_')[-1]) for x in existing_runs if x.split('_')[-1].isdigit()]
+    next_run_id = max(existing_ids, default=-1) + 1  # 如果没有旧文件夹，则从 0 开始
+    result_dir = os.path.join(result_base_dir, f'run_{next_run_id}')
+    os.makedirs(result_dir, exist_ok=True)
+
+    print(f"Results will be saved to: {result_dir}")
+
+    # 初始化记录器
+    train_losses = []
+    train_top1 = []
+    val_losses = []
+    val_top1 = []
+    epochs_list = []
+
     for epoch in range(args.epochs):
         # 训练一个 epoch
         train_metrics = train_one_epoch(model, train_loader, optimizer, criterion, device, epoch, args)
         scheduler.step()
 
-        # 验证
-        test_metrics = validate(model, test_loader, criterion, device)
+        # 在验证集上评估
+        val_metrics = validate(model, val_loader, criterion, device, log_suffix=' (Val)')
 
-        # 打印总结
-        logging.info('Epoch Summary: Train Loss: {:.4f}, Train Acc@1: {:.3f}, Test Loss: {:.4f}, Test Acc@1: {:.3f}, Test Acc@5: {:.3f}'.format(
+        # 打印 summary
+        logging.info('Epoch Summary: Train Loss: {:.4f}, Train Acc@1: {:.3f}, Val Loss: {:.4f}, Val Acc@1: {:.3f}'.format(
             train_metrics['loss'], train_metrics['top1'],
-            test_metrics['loss'], test_metrics['top1'], test_metrics['top5']))
+            val_metrics['loss'], val_metrics['top1']))
 
-        # 保存最佳模型
-        is_best = test_metrics['top1'] > best_acc
-        best_acc = max(test_metrics['top1'], best_acc)
+        # 保存最佳模型（基于验证集）
+        is_best = val_metrics['top1'] > best_acc
+        best_acc = max(val_metrics['top1'], best_acc)
         if is_best:
             torch.save({'state_dict': model.state_dict()}, 'best_ghost_resnet_cifar100.pth')
 
-    print('Training finished.')
-    print(f'Best Top-1 Accuracy: {best_acc:.2f}%')
+        # 记录当前 epoch 的指标
+        epochs_list.append(epoch + 1)
+        train_losses.append(train_metrics['loss'])
+        train_top1.append(train_metrics['top1'])
+        val_losses.append(val_metrics['loss'])
+        val_top1.append(val_metrics['top1'])
 
+    # 最终训练完成后，在测试集上评估一次
+    logging.info("Final evaluation on test set...")
+    test_metrics = validate(model, test_loader, criterion, device, log_suffix=' (Test)')
+    logging.info('Test Results: Loss: {:.4f}, Acc@1: {:.3f}, Acc@5: {:.3f}'.format(
+        test_metrics['loss'], test_metrics['top1'], test_metrics['top5']))
+
+    # 保存为 CSV 文件
+    csv_path = os.path.join(result_dir, 'training_log.csv')
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['epoch', 'train_loss', 'train_acc', 'val_loss', 'val_acc'])
+        for i in range(len(epochs_list)):
+            writer.writerow([
+                epochs_list[i],
+                train_losses[i],
+                train_top1[i],
+                val_losses[i],
+                val_top1[i]
+            ])
+
+    # 绘制 loss 曲线
+    plt.figure()
+    plt.plot(epochs_list, train_losses, label='Train Loss')
+    plt.plot(epochs_list, val_losses, label='Val Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(result_dir, 'loss_curve.png'))
+    plt.close()
+
+    # 绘制 accuracy 曲线
+    plt.figure()
+    plt.plot(epochs_list, train_top1, label='Train Acc@1')
+    plt.plot(epochs_list, val_top1, label='Val Acc@1')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy (%)')
+    plt.title('Training and Validation Accuracy')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(result_dir, 'accuracy_curve.png'))
+    plt.close()
 
 if __name__ == '__main__':
     main()

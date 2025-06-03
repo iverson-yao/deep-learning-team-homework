@@ -70,7 +70,7 @@ class ResNet(nn.Module):
 
     def forward(self, x):
         x = self.conv1(x)
-        print("After conv1:", x.shape)
+        # print("After conv1:", x.shape)
 
         if self.inter_layer:
             x1 = self.stage2(x)
@@ -84,25 +84,25 @@ class ResNet(nn.Module):
             return [x1, x2, x3, x4, x]
         else:
             x = self.stage2(x)
-            print("After layer1:", x.shape)
+            # print("After layer1:", x.shape)
 
             x = self.stage3(x)
-            print("After layer2:", x.shape)
+            # print("After layer2:", x.shape)
 
             x = self.stage4(x)
-            print("After layer3:", x.shape)
+            # print("After layer3:", x.shape)
 
             x = self.stage5(x)
-            print("After layer4:", x.shape)
+            # print("After layer4:", x.shape)
 
             x = self.avg_pool(x)
-            print("After avgpool:", x.shape)
+            # print("After avgpool:", x.shape)
 
             x = x.view(x.size(0), -1)
-            print("After flatten:", x.shape)
+            # print("After flatten:", x.shape)
 
             x = self.fc(x)
-            print("Output logits:", x.shape)
+            # print("Output logits:", x.shape)
 
             return x
 
