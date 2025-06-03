@@ -88,11 +88,17 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000, s=4, d=3):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-                               bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        # 由于CIFAR100数据集图片为32×32，因此第一层使用7×7的大卷积效果不好，将ResNet第一层卷积改为kernel_size=3，stride=1，padding=1的卷积，并去掉之后的maxpooling层
+        # self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
+        #                        bias=False)                    
+        # self.bn1 = nn.BatchNorm2d(64)
+        # self.relu = nn.ReLU(inplace=True)
+        # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(64), nn.ReLU(inplace=True))
+
         self.layer1 = self._make_layer(block, 64, layers[0], stride=1, s=s, d=d)
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2, s=s, d=d)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2, s=s, d=d)
@@ -128,20 +134,45 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
+    # def forward(self, x):
+    #     x = self.conv1(x)
+
+    #     x = self.layer1(x)
+    #     x = self.layer2(x)
+    #     x = self.layer3(x)
+    #     x = self.layer4(x)
+
+    #     x = self.avgpool(x)
+    #     x = x.view(x.size(0), -1)
+    #     x = self.fc(x)
+
+    #     return x
     def forward(self, x):
+        print("Input:", x.shape)
+
         x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
+        print("After conv1:", x.shape)
 
         x = self.layer1(x)
+        print("After layer1:", x.shape)
+
         x = self.layer2(x)
+        print("After layer2:", x.shape)
+
         x = self.layer3(x)
+        print("After layer3:", x.shape)
+
         x = self.layer4(x)
+        print("After layer4:", x.shape)
 
         x = self.avgpool(x)
+        print("After avgpool:", x.shape)
+
         x = x.view(x.size(0), -1)
+        print("After flatten:", x.shape)
+
         x = self.fc(x)
+        print("Output logits:", x.shape)
 
         return x
 

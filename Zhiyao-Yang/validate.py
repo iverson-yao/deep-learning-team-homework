@@ -128,7 +128,7 @@ def validate(model, loader, loss_fn, device, log_suffix=''):
 
 def main():
     parser = argparse.ArgumentParser(description='Train and Validate Ghost-ResNet on CIFAR-100')
-    parser.add_argument('--data', type=str, default='./data/cifar100', help='dataset root')
+    parser.add_argument('--data', type=str, default='D:\\DeepLearningClass/data/cifar100', help='dataset root')
     parser.add_argument('--epochs', default=90, type=int, metavar='N', help='number of total epochs to run')
     parser.add_argument('-b', '--batch-size', default=128, type=int, metavar='N', help='mini-batch size')
     parser.add_argument('--lr', default=0.001, type=float, metavar='LR', help='initial learning rate')
