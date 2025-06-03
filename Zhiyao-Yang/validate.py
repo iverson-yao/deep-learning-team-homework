@@ -12,7 +12,8 @@ from torch.utils.data import DataLoader
 from torchvision import transforms, datasets
 
 # 从 ghost_resnet.py 导入模型
-from ghost_resnet import resnet50
+# from ghost_resnet import resnet50
+from resnet import resnet50
 
 # 设置日志格式
 logging.basicConfig(level=logging.INFO)
@@ -174,7 +175,8 @@ def main():
 
 
     # 创建模型
-    model = resnet50(num_classes=100, s=args.width, d=3)
+    # model = resnet50(num_classes=100, s=args.width, d=3)
+    model = resnet50(num_classes=100)
 
     if args.resume:
         print(f"=> loading checkpoint '{args.resume}'")
